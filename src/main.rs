@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use clap::{Parser, Subcommand};
-use rusqlite::Connection;
+use rusqlite::{Connection, types::ValueRef};
 use std::env;
 
 #[derive(Parser, Debug)]
@@ -32,6 +32,10 @@ enum Commands {
         /// Run the contents of the provided .sql file 
         #[arg(short, long, value_name = "FILE")]
         file: Option<PathBuf>,
+
+        /// Use Rust's Debug output
+        #[arg(short, long)]
+        verbose: bool,
     },
     
     /// TODO
@@ -39,6 +43,33 @@ enum Commands {
 }
 
 fn process_query(conn: &Connection, sql_string: String) -> Result<(), Box<dyn std::error::Error>> {
+    let mut query = conn.prepare(&sql_string)?;
+    let num_columns = query.column_count();
+    let cell_width = (120 / num_columns).min(16);
+    
+    for i in 0..num_columns {
+        print!("{:<1$}", query.column_name(i)?, cell_width);
+    }
+    print!("\n");
+    
+    let mut response = query.query([])?;
+
+    while let Ok(Some(row)) = response.next() {
+        for i in 0..num_columns {
+            let value = row.get_ref(i)?;
+
+            // TODO: make a pretty formatter for `value`.
+            // https://docs.rs/rusqlite/latest/rusqlite/types/enum.ValueRef.html
+
+            print!("{:<1$}", value, cell_width);
+        }
+        print!("\n");
+    }
+
+    Ok(())
+}
+
+fn process_query_v(conn: &Connection, sql_string: String) -> Result<(), Box<dyn std::error::Error>> {
     let mut query = conn.prepare(&sql_string)?;
     let mut response = query.query(())?;
     while let Ok(Some(row)) = response.next() {
@@ -66,12 +97,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else if sql.is_some() {
             println!("{} row(s) modified",conn.execute(&sql.unwrap(), ())?);
         }
-    } else if let Cli {command: Some(Commands::Query { sql, file })} = cli {
+    } else if let Cli {command: Some(
+        Commands::Query { 
+            sql, 
+            file, 
+            verbose}
+        )} = cli {
         if file.is_some() {
             let sql_string = std::fs::read_to_string(file.unwrap())?;
-            process_query(&conn, sql_string)?;
+            if verbose { 
+                process_query_v(&conn, sql_string)?;
+            } else {
+                process_query(&conn, sql_string)?;
+            }
         } else if sql.is_some() {
-            process_query(&conn, sql.unwrap())?;
+            if verbose {
+                process_query_v(&conn, sql.unwrap())?;
+            } else {
+                process_query(&conn, sql.unwrap())?;
+            }
         }
     } else {
         println!("Type `sqll help`");
