@@ -42,13 +42,33 @@ enum Commands {
     Game
 }
 
+fn prettify(value: ValueRef) -> Result<String, &'static str>  {
+    match value {
+        ValueRef::Null => Ok(String::new()),
+        ValueRef::Integer(n) => Ok(format!("{n}")),
+        ValueRef::Text(bytes) => {
+            let s = String::from_utf8(bytes.to_vec());
+            if s.is_ok() {Ok(s.unwrap())} else {Err("Error parsing Text")}
+        },
+        ValueRef::Real(n) => Ok(format!("{n}")),
+        ValueRef::Blob(bytes) => {
+            let length = bytes.len();
+            let mut output = String::new();
+            let slice = bytes.get(0..length.min(18))
+                .ok_or("Blob parsing error")?;
+            Ok(String::from_utf8_lossy(slice).into_owned())
+        }
+
+    }
+}
+
 fn process_query(conn: &Connection, sql_string: String) -> Result<(), Box<dyn std::error::Error>> {
     let mut query = conn.prepare(&sql_string)?;
     let num_columns = query.column_count();
-    let cell_width = (120 / num_columns).min(16);
+    let cell_width = (120 / num_columns).min(15);
     
     for i in 0..num_columns {
-        print!("{:<1$}", query.column_name(i)?, cell_width);
+        print!("{:_^1$}|", query.column_name(i)?, cell_width);
     }
     print!("\n");
     
@@ -61,7 +81,7 @@ fn process_query(conn: &Connection, sql_string: String) -> Result<(), Box<dyn st
             // TODO: make a pretty formatter for `value`.
             // https://docs.rs/rusqlite/latest/rusqlite/types/enum.ValueRef.html
 
-            print!("{:<1$}", value, cell_width);
+            print!("{:<1$}|", prettify(value)?, cell_width);
         }
         print!("\n");
     }
